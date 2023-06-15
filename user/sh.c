@@ -3,6 +3,7 @@
 #include "kernel/types.h"
 #include "user/user.h"
 #include "kernel/fcntl.h"
+#include "kernel/stat.h"
 
 // Parsed command representation
 #define EXEC  1
@@ -130,10 +131,13 @@ runcmd(struct cmd *cmd)
   exit(0);
 }
 
+int file_mode = 0;
+
 int
 getcmd(char *buf, int nbuf)
 {
-  fprintf(2, "$ ");
+  if (!file_mode)
+    fprintf(2, "$ ");
   memset(buf, 0, nbuf);
   gets(buf, nbuf);
   if(buf[0] == 0) // EOF
@@ -153,6 +157,12 @@ main(void)
       close(fd);
       break;
     }
+  }
+
+  struct stat st;
+  fstat(0, &st);
+  if (st.type == T_FILE) {
+    file_mode = 1;
   }
 
   // Read and run input commands.
