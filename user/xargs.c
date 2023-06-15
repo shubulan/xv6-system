@@ -25,16 +25,8 @@ main(int argc, char *argv[]) {
         exit(1);
     }
 
-    int i = 1, multi = 0, cargc = 0, eargc = 0;
+    int i = 1, multi = 1, cargc = 0, eargc = 0;
     char* cargv[MAXARG] = {0};
-    if (strcmp(argv[i], "-n") == 0) {
-        i++;
-        multi = atoi(argv[i++]);
-        if (multi < 0) {
-            fprintf(2, "invalid [-n [num]]\n"); 
-            exit(2);
-        }
-    }
 
     for (; i < argc; i++) {
         cargv[cargc++] = argv[i];
