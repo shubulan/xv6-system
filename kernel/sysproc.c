@@ -5,6 +5,7 @@
 #include "param.h"
 #include "memlayout.h"
 #include "spinlock.h"
+#include "sysinfo.h"
 #include "proc.h"
 
 uint64
@@ -94,4 +95,32 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// set current process's syscall trace state.
+// it will also affect it's child's
+uint64
+sys_trace(void)
+{
+  //int mask;
+  argint(0, &(myproc()->sys_trace_mask));
+  //myproc()->sys_trace_mask = mask;
+  return 0;
+}
+
+// get current sys info
+uint64
+sys_sysinfo(void)
+{
+  uint64 addr;
+  argaddr(0, &addr);
+  if (addr == 0)
+    return -1;
+  struct proc *p = myproc();
+  struct sysinfo si;
+  si.freemem = kmemleft();
+  si.nproc = usedproc();
+  if(copyout(p->pagetable, addr, (char *)&si, sizeof(si)) < 0)
+    return -1;
+  return 0;
 }
