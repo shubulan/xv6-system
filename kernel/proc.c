@@ -111,9 +111,10 @@ found:
   }
 
   // hold of a kernel page table
-  printf("allocproc\n");
   p->kpgtable = kvminit_r();
+  // printf("allocproc %p\n", p->kpgtable);
   if(p->kpgtable == 0){
+    printf("alloc: kpg error\n");
     freeproc(p);
     release(&p->lock);
     return 0;
@@ -124,7 +125,12 @@ found:
   if(pa == 0)
     panic("kalloc");
   uint64 va = KSTACK((int) (p - proc));
-  ukvmmap(p->kpgtable, va, (uint64)pa, PGSIZE, PTE_R|PTE_W);
+  if (ukvmmap(p->kpgtable, va, (uint64)pa, PGSIZE, PTE_R|PTE_W) < 0) {
+    printf("alloc: ukvmmap error\n");
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
   p->kstack = va;
 
   // Set up new context to start executing at forkret,
@@ -273,14 +279,17 @@ growproc(int n)
   uint sz;
   struct proc *p = myproc();
 
+  // printf("growproc %p %d\n", p->pagetable, n);
   sz = p->sz;
   if(n > 0){
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+      // printf("growproc error\n");
       return -1;
     }
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
+  // printf("growproc %p new sz %d\n\n", p->pagetable, sz);
   p->sz = sz;
   return 0;
 }
