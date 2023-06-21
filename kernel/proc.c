@@ -146,10 +146,14 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+
+  // free kernel stack
+  uvmunmap(p->kpgtable, p->kstack, 1, 1);
+  p->kstack = 0;
   if(p->kpgtable)
     // kernel stack is related to the pointer of current proc
     // so the parm is p
-    proc_freekpgtable(p);
+    proc_freekpgtable(p->kpgtable);
   p->kpgtable = 0;
   p->pagetable = 0;
   p->sz = 0;
@@ -211,19 +215,19 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 // Free a process's kernel page table, don't free
 // physical memory it refers to
 void
-proc_freekpgtable(struct proc* p)
+proc_freekpgtable(pagetable_t kernelpt)
 {
-  uvmunmap(p->kpgtable, UART0, 1, 0);
-  uvmunmap(p->kpgtable, VIRTIO0, 1, 0);
-  uvmunmap(p->kpgtable, CLINT, 0x10000 / PGSIZE, 0);
-  uvmunmap(p->kpgtable, PLIC, 0x400000 / PGSIZE, 0);
-  uvmunmap(p->kpgtable, KERNBASE, ((uint64)etext - KERNBASE) / PGSIZE, 0);
-  uvmunmap(p->kpgtable, (uint64)etext, (PHYSTOP - (uint64)etext) / PGSIZE, 0);
-  uvmunmap(p->kpgtable, TRAMPOLINE, 1, 0);
-  // last parms is 1
-  // because we need free physical mem of kernel stack for the current process
-  uvmunmap(p->kpgtable, p->kstack, 1, 1);
-  uvmfree(p->kpgtable, 0);
+  for(int i = 0; i < 512; i++){
+    pte_t pte = kernelpt[i];
+    if(pte & PTE_V){
+      kernelpt[i] = 0;
+      if ((pte & (PTE_R|PTE_W|PTE_X)) == 0){
+        uint64 child = PTE2PA(pte);
+        proc_freekpgtable((pagetable_t)child);
+      }
+    }
+  }
+  kfree((void*)kernelpt);
 }
 
 // a user program that calls exec("/init")
@@ -255,6 +259,7 @@ userinit(void)
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
+  u2kvmcopy(p->pagetable, p->kpgtable, 0, p->sz);
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
@@ -274,9 +279,14 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    if (PGROUNDUP(sz + n) >= PLIC)
+      return -1;
+
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+
+    u2kvmcopy(p->pagetable, p->kpgtable, sz - n, sz);
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
@@ -305,6 +315,8 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  u2kvmcopy(np->pagetable, np->kpgtable, 0, np->sz);
 
   np->parent = p;
 
