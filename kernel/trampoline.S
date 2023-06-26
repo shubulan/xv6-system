@@ -83,6 +83,9 @@ uservec:
 
         # jump to usertrap(), which does not return
         jr t0
+.globl tickhandle
+tickhandle:
+        csrw sepc, a2
 
 .globl userret
 userret:

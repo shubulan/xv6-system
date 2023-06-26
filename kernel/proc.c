@@ -113,6 +113,16 @@ found:
     return 0;
   }
 
+  p->ticks_handle = 0;
+  p->ticks_interval = 0;
+  p->ticks_passed = 0;
+  p->ticks_handle_calling = 0;
+  if((p->ticks_trapframe = (struct trapframe *)kalloc()) == 0){
+    release(&p->lock);
+    kfree(p->trapframe);
+    return 0;
+  }
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -138,6 +148,8 @@ freeproc(struct proc *p)
 {
   if(p->trapframe)
     kfree((void*)p->trapframe);
+  if(p->ticks_trapframe)
+    kfree((void*)p->ticks_trapframe);
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
@@ -695,5 +707,18 @@ procdump(void)
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
+  }
+}
+
+void proc_tick_inc(void) {
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++){
+    if (p->state == UNUSED || p->state == ZOMBIE)
+      continue;
+    if (p->ticks_interval == 0)
+      continue;
+    if (p->ticks_passed < p->ticks_interval) {
+      p->ticks_passed++;
+    }
   }
 }
