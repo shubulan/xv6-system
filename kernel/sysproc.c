@@ -46,8 +46,15 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  myproc()->sz += n;
+  struct proc *p = myproc();
+  addr = p->sz;
+  p->sz += n;
+  if (n < 0) {
+    // printf("shrink\n");
+    uint64 b = PGROUNDUP(p->sz);
+    int npage = (PGROUNDUP(addr) - b) / PGSIZE;
+    uvmunmap(p->pagetable, b, npage, 1);
+  }
   // if(growproc(n) < 0)
   //   return -1;
   return addr;

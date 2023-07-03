@@ -67,21 +67,25 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else if (r_scause() == 15) { // page fault
-    printf("pagefault processing\n");
+  } else if (r_scause() == 15 || r_scause() == 13) { // page fault
     uint64 va = r_stval();
+    if (va > p->sz) { // process stack overflow and access higher than sbrk()
+      // printf("pagefault: access higher mem pid=%d\n", p->pid);
+      goto pagefault_error;
+    }
     va = PGROUNDDOWN(va);
     void* pa = kalloc();
-    if (!pa) {
-      printf("pagefault: out of memory pid=%d\n", p->pid);
-      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-      p->killed = 1;
-    } else {
-      if(mappages(p->pagetable, va, PGSIZE, (uint64)pa, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+    if (pa) {
+      if(mappages(p->pagetable, va, PGSIZE, (uint64)pa, PTE_W|PTE_X|PTE_R|PTE_U) != 0) {
         kfree(pa);
-        printf("pagefault: mappages error pid=%d\n", p->pid);
-        p->killed = 1;
+        // printf("pagefault: mappages error pid=%d\n", p->pid);
+        goto pagefault_error;
       }
+    } else {
+      // printf("pagefault: out of memory pid=%d\n", p->pid);
+      // printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+    pagefault_error:
+      p->killed = 1;
     }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
