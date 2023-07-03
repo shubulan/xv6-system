@@ -69,7 +69,10 @@ usertrap(void)
     // ok
   } else if (r_scause() == 15 || r_scause() == 13) { // page fault
     uint64 va = r_stval();
-    if (va > p->sz) { // process stack overflow and access higher than sbrk()
+    if (va >= p->sz || va < p->trapframe->sp) { // process stack overflow and access higher than sbrk()
+    // in xv6, sp is lower than heap.
+    // if don't judge this, kernal will panic remap. because guard page is alloced but
+    // cleared PTE_U bit. read exec.c:71~74, core code is uvmclear(...)
       // printf("pagefault: access higher mem pid=%d\n", p->pid);
       goto pagefault_error;
     }
