@@ -361,6 +361,25 @@ uvmclear(pagetable_t pagetable, uint64 va)
   *pte &= ~PTE_U;
 }
 
+uint64 lazyalloc(uint64 va) {
+  struct proc *p = myproc();
+  if (va >= p->sz || va < p->trapframe->sp) {
+    return 0;
+  }
+  va = PGROUNDDOWN(va);
+  void* pa = kalloc();
+  if (pa) {
+    memset((void *)pa, 0, PGSIZE);
+    if(mappages(p->pagetable, va, PGSIZE, (uint64)pa, PTE_W|PTE_R|PTE_U) != 0) {
+      kfree(pa);
+      return 0;
+    }
+  } else {
+    return 0;
+  }
+  return (uint64)pa;
+}
+
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
@@ -372,7 +391,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
+    if(pa0 == 0 && (pa0 = lazyalloc(va0)) == 0)
       return -1;
     n = PGSIZE - (dstva - va0);
     if(n > len)
@@ -397,9 +416,9 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0) {
+    if(pa0 == 0 && (pa0 = lazyalloc(va0)) == 0)
       return -1;
-    }
+
     n = PGSIZE - (srcva - va0);
     if(n > len)
       n = len;
