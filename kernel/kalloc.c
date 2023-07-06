@@ -23,9 +23,12 @@ struct {
   struct run *freelist;
 } kmem;
 
+uint16 pa_ref[PHYPGCOUNT];
 void
 kinit()
 {
+  // init ref 1 to be free
+  for (int i = 0; i < PHYPGCOUNT; i++) pa_ref[i] = 1;
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
 }
@@ -52,14 +55,20 @@ kfree(void *pa)
     panic("kfree");
 
   // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
 
   acquire(&kmem.lock);
+  pa_ref[PHYPGIDX(pa)]--;
+  if (pa_ref[PHYPGIDX(pa)] != 0) {
+    release(&kmem.lock);
+    return;
+  }
+  memset(pa, 1, PGSIZE); // push off junky time.
   r->next = kmem.freelist;
   kmem.freelist = r;
   release(&kmem.lock);
+  // memset(pa, 1, PGSIZE); // push off junky time. bug: pointer r->next been junky
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -72,8 +81,13 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r) {
     kmem.freelist = r->next;
+    if (pa_ref[PHYPGIDX(r)]) {
+      panic("kalloc: ref not 0\n");
+    }
+    pa_ref[PHYPGIDX(r)] = 1;
+  }
   release(&kmem.lock);
 
   if(r)
