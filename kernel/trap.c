@@ -65,6 +65,15 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 15) { // write pagefault
+    uint64 va = r_stval();
+    int ret;
+    if ((ret = copyonwrite(p->pagetable, va)) < 0) {
+      p->killed = 1;
+    } else {
+      // fresh pagetable
+      sfence_vma();
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

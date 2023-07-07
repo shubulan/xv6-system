@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -320,6 +322,9 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     *pte &= ~PTE_W; // clear write
     pa = PTE2PA(*pte);
+    // ref + 1
+    kpaaddref(pa);
+
     flags = PTE_FLAGS(*pte);
     // if((mem = kalloc()) == 0)
     //   goto err;
@@ -358,12 +363,23 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
+  pte_t* pte;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
+  rewalk:
+    pte = walk(pagetable, va0, 0);
+    if (pte == 0)
+      return -1;
+    pa0 = PTE2PA(*pte);
     if(pa0 == 0)
       return -1;
+    if ((*pte & PTE_W) == 0) { // cow
+      if (copyonwrite(pagetable, va0) < 0) // There is some code duplication.
+        return -1;
+      sfence_vma();
+      goto rewalk;
+    }
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
@@ -442,4 +458,43 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+int
+copyonwrite(pagetable_t pagetable, uint64 va) {
+  pte_t *pte;
+  uint64 pa;
+  uint flags;
+  char* mem;
+  va = PGROUNDDOWN(va);
+  pte = walk(pagetable, va, 0);
+  if (pte == 0) {
+    printf("copyonwrite: va = %lld\n", va);
+    panic("copyonwrite: no pte");
+  }
+
+  if((*pte & PTE_V) == 0)
+    panic("copyonwrite: page not present");
+
+  pa = PTE2PA(*pte);
+  // if paref = 1, just add PTE_W bit
+  if (kgetparef(pa) == 1) {
+    *pte |= PTE_W;
+    return 0;
+  }
+
+  if ((mem = kalloc()) == 0)
+    return -1;
+
+  kpadecref(pa);
+  memmove(mem, (char*)pa, PGSIZE);
+  flags = PTE_FLAGS(*pte);
+  flags |= PTE_W;
+
+  uvmunmap(pagetable, va, 1, 0);
+  if(mappages(pagetable, va, PGSIZE, (uint64)mem, flags) != 0) {
+    return -1;
+  }
+
+  return 0;
 }

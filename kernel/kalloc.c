@@ -94,3 +94,32 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+void
+kpaaddref(uint64 pa) {
+  acquire(&kmem.lock);
+  pa_ref[PHYPGIDX(pa)]++;
+  release(&kmem.lock);
+}
+
+int
+kpadecref(uint64 pa) {
+  uint64 oldref;
+  acquire(&kmem.lock);
+  oldref = pa_ref[PHYPGIDX(pa)];
+  if (oldref < 1) {
+    panic("decref");
+  }
+  pa_ref[PHYPGIDX(pa)]--;
+  release(&kmem.lock);
+  return oldref;
+}
+
+int
+kgetparef(uint64 pa) {
+  uint64 ref;
+  acquire(&kmem.lock);
+  ref = pa_ref[PHYPGIDX(pa)];
+  release(&kmem.lock);
+  return ref;
+}
