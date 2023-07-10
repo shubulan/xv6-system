@@ -50,6 +50,7 @@ void
 kfree(void *pa)
 {
   struct run *r;
+  int ref_cnt;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
@@ -59,8 +60,12 @@ kfree(void *pa)
   r = (struct run*)pa;
 
   acquire(&kmem.lock);
-  pa_ref[PHYPGIDX(pa)]--;
-  if (pa_ref[PHYPGIDX(pa)] != 0) {
+
+  ref_cnt = pa_ref[PHYPGIDX(pa)];
+  if (ref_cnt < 1)
+    panic("kfree");
+  ref_cnt = --pa_ref[PHYPGIDX(pa)];
+  if (ref_cnt > 0) {
     release(&kmem.lock);
     return;
   }
@@ -83,9 +88,6 @@ kalloc(void)
   r = kmem.freelist;
   if(r) {
     kmem.freelist = r->next;
-    if (pa_ref[PHYPGIDX(r)]) {
-      panic("kalloc: ref not 0\n");
-    }
     pa_ref[PHYPGIDX(r)] = 1;
   }
   release(&kmem.lock);
@@ -107,7 +109,10 @@ kpadecref(uint64 pa) {
   uint64 oldref;
   acquire(&kmem.lock);
   oldref = pa_ref[PHYPGIDX(pa)];
-  if (oldref < 1) {
+
+  // this func can't dec to 0
+  if (oldref < 2) {
+    printf("%p %d\n", pa, oldref);
     panic("decref");
   }
   pa_ref[PHYPGIDX(pa)]--;
