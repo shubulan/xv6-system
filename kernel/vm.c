@@ -478,23 +478,25 @@ copyonwrite(pagetable_t pagetable, uint64 va) {
 
   pa = PTE2PA(*pte);
   // if paref = 1, just add PTE_W bit
-  if (kgetparef(pa) == 1) {
-    *pte |= PTE_W;
-    return 0;
-  }
+  // if (kgetparef(pa) == 1) {
+  //   *pte |= PTE_W;
+  //   return 0;
+  // }
 
   if ((mem = kalloc()) == 0)
     return -1;
 
-  kpadecref(pa);
+  // kpadecref(pa);
   memmove(mem, (char*)pa, PGSIZE);
+  kfree((void *)pa);
   flags = PTE_FLAGS(*pte);
   flags |= PTE_W;
+  *pte = PA2PTE(mem) + flags;
 
-  uvmunmap(pagetable, va, 1, 0);
-  if(mappages(pagetable, va, PGSIZE, (uint64)mem, flags) != 0) {
-    return -1;
-  }
+  // uvmunmap(pagetable, va, 1, 0);
+  // if(mappages(pagetable, va, PGSIZE, (uint64)mem, flags) != 0) {
+  //   return -1;
+  // }
 
   return 0;
 }
