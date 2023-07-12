@@ -368,11 +368,11 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
   rewalk:
+    pa0 = walkaddr(pagetable, va0);
+    if (pa0 == 0)
+      return -1;
     pte = walk(pagetable, va0, 0);
     if (pte == 0)
-      return -1;
-    pa0 = PTE2PA(*pte);
-    if(pa0 == 0)
       return -1;
     if ((*pte & PTE_W) == 0) { // cow
       if (copyonwrite(pagetable, va0) < 0) // There is some code duplication.
