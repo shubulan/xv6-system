@@ -8,6 +8,8 @@
 #include "spinlock.h"
 #include "riscv.h"
 #include "defs.h"
+#include "proc.h"
+#include "kalloc.h"
 
 void freerange(void *pa_start, void *pa_end);
 
@@ -18,16 +20,18 @@ struct run {
   struct run *next;
 };
 
-struct {
-  struct spinlock lock;
-  struct run *freelist;
-} kmem;
-
+char* memlockname[NCPU] = {
+       "kmem0", "kmem1", "kmem2", "kmem3",
+       "kmem4", "kmem5", "kmem6", "kmem7"};
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
+  int cuid = cpuid();
+
+  initlock(&cpus[cuid].mem.lock, memlockname[cuid]);
+  if (cuid == 0) {
+    freerange(end, (void*)PHYSTOP);
+  }
 }
 
 void
@@ -46,7 +50,11 @@ freerange(void *pa_start, void *pa_end)
 void
 kfree(void *pa)
 {
+  struct cpu *cu;
   struct run *r;
+  push_off();
+  cu = mycpu();
+  pop_off();
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
@@ -56,10 +64,10 @@ kfree(void *pa)
 
   r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  acquire(&cu->mem.lock);
+  r->next = cu->mem.freelist;
+  cu->mem.freelist = r;
+  release(&cu->mem.lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -68,15 +76,34 @@ kfree(void *pa)
 void *
 kalloc(void)
 {
+  struct cpu* cu;
   struct run *r;
+  push_off();
+  cu = mycpu();
+  pop_off();
 
-  acquire(&kmem.lock);
-  r = kmem.freelist;
+  acquire(&cu->mem.lock);
+  r = cu->mem.freelist;
   if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
+    cu->mem.freelist = r->next;
+  release(&cu->mem.lock);
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+  else { // steal mem
+    for (int i = 0; i < NCPU; i++) {
+      struct cpu *tcpu = &cpus[i];
+      if (tcpu == cu || !tcpu->mem.freelist) {
+        continue;
+      }
+      acquire(&tcpu->mem.lock);
+      r = tcpu->mem.freelist;
+      if(r)
+        tcpu->mem.freelist = r->next;
+      release(&tcpu->mem.lock);
+      break;
+    }
+  }
+
   return (void*)r;
 }

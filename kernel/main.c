@@ -39,6 +39,7 @@ main()
     __sync_synchronize();
     started = 1;
   } else {
+    kinit();
     while(started == 0)
       ;
     __sync_synchronize();
