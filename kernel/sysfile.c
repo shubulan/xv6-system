@@ -290,7 +290,7 @@ sys_open(void)
   int fd, omode;
   struct file *f;
   struct inode *ip;
-  int n;
+  int n, cyc;
 
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
     return -1;
@@ -314,6 +314,34 @@ sys_open(void)
       end_op();
       return -1;
     }
+
+    if ((omode & O_NOFOLLOW) == 0) { // follow
+      cyc = 10;
+      while (ip->type == T_SYMLINK && cyc--) {
+        if (readi(ip, 0, (uint64)path, 0, MAXPATH) != MAXPATH) {
+          iunlockput(ip);
+          end_op();
+          printf("open: bad symlink (%s): wrong target path\n", path);
+          return -1;
+        }
+        iunlockput(ip);
+
+        if((ip = namei(path)) == 0){
+          end_op();
+          printf("open: bad symlink (%s): no target file\n", path);
+          return -1;
+        }
+        ilock(ip);
+      }
+      if (cyc == -1) { // think it to be cycle link
+          iunlockput(ip);
+          end_op();
+          printf("open: bad symlink (%s): recursive\n", path);
+          return -1;
+
+      }
+    }
+
   }
 
   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
@@ -482,5 +510,34 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64
+sys_symlink()
+{
+  char target[MAXPATH];
+  char linkpath[MAXPATH];
+  struct inode *ip;
+  int n1, n2;
+
+  if((n1 = argstr(0, target, MAXPATH)) < 0 || (n2 = argstr(1, linkpath, MAXPATH)) < 0)
+    return -1;
+
+  begin_op();
+  if ((ip = namei(linkpath)) != 0) { // file exist
+    end_op();
+    return -1;
+  }
+
+  if ((ip = create(linkpath, T_SYMLINK, 0, 0)) == 0) { // create symlink file
+    end_op();
+    return -1;
+  }
+  if (writei(ip, 0, (uint64)target, 0, MAXPATH) != MAXPATH) {
+    return -1;
+  }
+  iunlockput(ip);
+  end_op();
   return 0;
 }
