@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -67,6 +71,52 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 13/*read page fault*/) {
+    uint64 va = r_stval();
+    uint64 pa;
+    int flag = PTE_U, r;
+    printf("vma pagefault va:: %p\n", va);
+
+    struct VMA *vma = 0, *vma_tp;
+    for (int i = 0; i < 16; i++) {
+      vma_tp = &p->vma[i];
+      if (vma_tp->valid == 0) continue;
+      if (vma_tp->va_start <= va && va < vma_tp->va_end) {
+        printf("find slot %d start %p, end %p\n", i, vma_tp->va_start, vma_tp->va_end);
+        vma = vma_tp;
+        break;
+      }
+    }
+
+    if (vma) {
+      if ((pa = (uint64)kalloc()) == 0) {
+        p->killed = 1;
+        goto vma_alloc_err;
+      }
+      memset((void*)pa, 0, PGSIZE);
+
+      if (vma->prot & PROT_READ) {
+        flag |= PTE_R;
+      }
+      if (vma->prot & PROT_WRITE) {
+        flag |= PTE_W;
+      }
+
+      uint64 offset = PGROUNDDOWN(va) - vma->va_start;
+      mappages(p->pagetable, va, 1, pa, flag);
+      ilock(vma->file->ip);
+      printf("read file %p, offset, %d, pa %p\n", vma->file->ip, offset, pa);
+      r = readi(vma->file->ip, 0, pa, offset, PGSIZE);
+      iunlock(vma->file->ip);
+      printf("read first char: %d\n", *(char*)(pa));
+      if (r < 0) {
+        panic("vma scause");
+      }
+    } else {
+    vma_alloc_err:
+      panic("vma alloc error!");
+    }
+
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
