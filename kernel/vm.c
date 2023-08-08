@@ -173,7 +173,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0) {
       // vma lazy allocate
-      printf("uvmunmap: not mapped\n");
+      // printf("uvmunmap: not mapped\n");
       continue;
     }
     if(PTE_FLAGS(*pte) == PTE_V)
@@ -307,11 +307,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0) {
-      printf("uvmcopy: pte maybe not exist\n");
+      // printf("uvmcopy: pte maybe not exist\n");
       continue;
     }
     if((*pte & PTE_V) == 0) {
-      printf("uvmcopy: page maybe not present\n");
+      // printf("uvmcopy: page maybe not present\n");
       continue;
     }
     pa = PTE2PA(*pte);

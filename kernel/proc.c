@@ -280,7 +280,6 @@ fork(void)
 
   for (int i = 0; i < 16; i++) {
     if (p->vma[i].valid) {
-      printf("fork: copy vma slot %d\n", i);
       np->vma[i] = p->vma[i];
       filedup(p->vma[i].file);
     }
@@ -734,8 +733,6 @@ int munmap(struct VMA *vma, uint64 va, uint64 len) {
           #define min(a, b) ((a) < (b) ? (a) : (b))
           uint n1 = min(PGSIZE, vma->va_end - vma->va_start);
           uint off = vma->va_start - vma->va_origin;
-          printf("sys_unmap: writeback file: %p, off %d len %d\n", vma->file->ip, off, n1);
-          printf("writeback first char %d pa:%p\n", *(char*)pa, pa);
           int r;
           release(&p->lock); // write back need release proc lock
           begin_op();
@@ -744,7 +741,6 @@ int munmap(struct VMA *vma, uint64 va, uint64 len) {
           iunlock(vma->file->ip);
           end_op();
           if (r < 0 || r != n1) {
-            printf("sys_munmap: write back less r(%d) != n1(%d)\n", r, n1);
             return -1;
           }
           acquire(&p->lock); // reacquire proc lock
@@ -753,9 +749,7 @@ int munmap(struct VMA *vma, uint64 va, uint64 len) {
       }
       vma->va_start += PGSIZE;
     }
-    printf("sys_unmap: after unmap start %p %p\n", vma->va_start, vma->va_end);
     if (vma->va_start >= vma->va_end) { // release vma
-      printf("sys unmap delete vma\n");
       vma->valid = 0;
       f = vma->file;
       vma->file = 0;
@@ -771,8 +765,6 @@ int munmap(struct VMA *vma, uint64 va, uint64 len) {
           #define min(a, b) ((a) < (b) ? (a) : (b))
           uint n1 = min(PGSIZE, vma->va_end - va);
           uint off = va - vma->va_origin;
-          printf("sys_unmap: writeback file: %p, off %d len %d\n", vma->file->ip, off, n1);
-          printf("writeback first char %s pa:%p\n", (char*)pa, pa);
           int r;
           release(&p->lock); // write back need release proc lock
           begin_op();
@@ -781,7 +773,6 @@ int munmap(struct VMA *vma, uint64 va, uint64 len) {
           iunlock(vma->file->ip);
           end_op();
           if (r < 0 || r != n1) {
-            printf("sys_munmap: write back less r(%d) != n1(%d)\n", r, n1);
             return -1;
           }
           acquire(&p->lock); // reacquire proc lock

@@ -510,7 +510,6 @@ sys_mmap(void) {
   acquire(&p->lock);
   for (int i = 0; i < 16; i++) {
     if (p->vma[i].valid == 0) {
-      printf("sys_mmap to slot:#%d\n", i);
       vma = &p->vma[i];
       break;
     }
@@ -526,11 +525,9 @@ sys_mmap(void) {
   vma->prot = prot;
   vma->length = len;
   p->sz = PGROUNDUP(p->sz);
-  printf("sys_mmap: vma start:roundup(sz) %p\n", p->sz);
   vma->va_start = p->sz;
   vma->va_origin = p->sz;
   vma->va_end = vma->va_start + vma->length;
-  printf("sysmmap start %p end %p\n", vma->va_start, vma->va_end);
   p->sz += vma->length;
 
   release(&p->lock);
@@ -553,12 +550,11 @@ sys_munmap(void) {
   for (int i = 0; i < 16; i++) {
     if (p->vma[i].valid == 0) continue;
     if (p->vma[i].va_start <= va && va < p->vma[i].va_end) {
-      printf("sys munmap slots %d\n", i);
       vma = &p->vma[i];
       break;
     }
   }
-  printf("sys munmap %p\n", vma);
+
   if (vma == 0) {
     release(&p->lock);
     return 0;
