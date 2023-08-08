@@ -90,7 +90,6 @@ usertrap(void)
 
     if (vma) {
       if ((pa = (uint64)kalloc()) == 0) {
-        p->killed = 1;
         goto vma_alloc_err;
       }
       memset((void*)pa, 0, PGSIZE);
@@ -114,7 +113,9 @@ usertrap(void)
       }
     } else {
     vma_alloc_err:
-      panic("vma alloc error!");
+      //panic("no approate VAM or alloc error!");
+      p->killed = 1;
+      // keep going to be killed
     }
 
   } else {

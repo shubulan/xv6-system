@@ -83,6 +83,7 @@ struct trapframe {
 enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 struct VMA {
+  uint64 va_origin;
   uint64 va_start;
   uint64 va_end;
   uint64 length; // maybe no use

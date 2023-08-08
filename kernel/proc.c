@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fs.h"
+#include "sleeplock.h"
+#include "file.h"
+#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -274,6 +278,14 @@ fork(void)
     return -1;
   }
 
+  for (int i = 0; i < 16; i++) {
+    if (p->vma[i].valid) {
+      printf("fork: copy vma slot %d\n", i);
+      np->vma[i] = p->vma[i];
+      filedup(p->vma[i].file);
+    }
+  }
+
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
@@ -351,6 +363,12 @@ exit(int status)
       fileclose(f);
       p->ofile[fd] = 0;
     }
+  }
+
+  // unmap all mmap va
+  for (int i = 0; i < 16; i++) {
+    if (p->vma[i].valid == 0) continue;
+    munmap(&p->vma[i], p->vma[i].va_start, p->vma[i].length);
   }
 
   begin_op();
@@ -700,4 +718,85 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+int munmap(struct VMA *vma, uint64 va, uint64 len) {
+  struct proc *p = myproc();
+  struct file *f = 0;
+  acquire(&p->lock);
+  uint64 pa;
+  uint64 unmap_end = va + len;
+  if (vma->va_start == va) { // unmap start
+    while (vma->va_start < unmap_end && vma->va_start < vma->va_end) {
+      pa = walkaddr(p->pagetable, vma->va_start);
+      if (pa) {
+        if (vma->flag & MAP_SHARED) { // need write back
+          #define min(a, b) ((a) < (b) ? (a) : (b))
+          uint n1 = min(PGSIZE, vma->va_end - vma->va_start);
+          uint off = vma->va_start - vma->va_origin;
+          printf("sys_unmap: writeback file: %p, off %d len %d\n", vma->file->ip, off, n1);
+          printf("writeback first char %d pa:%p\n", *(char*)pa, pa);
+          int r;
+          release(&p->lock); // write back need release proc lock
+          begin_op();
+          ilock(vma->file->ip);
+          r = writei(vma->file->ip, 0, pa, off, n1);
+          iunlock(vma->file->ip);
+          end_op();
+          if (r < 0 || r != n1) {
+            printf("sys_munmap: write back less r(%d) != n1(%d)\n", r, n1);
+            return -1;
+          }
+          acquire(&p->lock); // reacquire proc lock
+        }
+        uvmunmap(p->pagetable, vma->va_start, 1, 1); // unmap and release pa mem
+      }
+      vma->va_start += PGSIZE;
+    }
+    printf("sys_unmap: after unmap start %p %p\n", vma->va_start, vma->va_end);
+    if (vma->va_start >= vma->va_end) { // release vma
+      printf("sys unmap delete vma\n");
+      vma->valid = 0;
+      f = vma->file;
+      vma->file = 0;
+      vma->va_start = vma->va_end = 0;
+    }
+  } else { // unmap middle to end
+    va = PGROUNDUP(va);
+    uint64 shrink_len = vma->va_end - va;
+    while (va < vma->va_end) {
+      pa = walkaddr(p->pagetable, va);
+      if (pa) {
+        if (vma->flag & MAP_SHARED) { // need write back
+          #define min(a, b) ((a) < (b) ? (a) : (b))
+          uint n1 = min(PGSIZE, vma->va_end - va);
+          uint off = va - vma->va_origin;
+          printf("sys_unmap: writeback file: %p, off %d len %d\n", vma->file->ip, off, n1);
+          printf("writeback first char %s pa:%p\n", (char*)pa, pa);
+          int r;
+          release(&p->lock); // write back need release proc lock
+          begin_op();
+          ilock(vma->file->ip);
+          r = writei(vma->file->ip, 0, pa, off, n1);
+          iunlock(vma->file->ip);
+          end_op();
+          if (r < 0 || r != n1) {
+            printf("sys_munmap: write back less r(%d) != n1(%d)\n", r, n1);
+            return -1;
+          }
+          acquire(&p->lock); // reacquire proc lock
+        }
+        uvmunmap(p->pagetable, va, 1, 1);
+      }
+      va += PGSIZE;
+    }
+    vma->va_end -= shrink_len; // never release vma
+  }
+  release(&p->lock);
+  if (f) { // release file also
+    fileclose(f);
+  }
+
+  return 0;
+
 }
